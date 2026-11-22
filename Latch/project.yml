@@ -1,0 +1,30 @@
+name: Latch
+options:
+  bundleIdPrefix: app.latch
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Paid Apple Developer team ID (10 characters). Required for Family Controls and NFC.
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Latch:
+    type: application
+    platform: iOS
+    sources:
+      - path: Latch
+    settings:
+      base:
+        # Must be globally unique. Change if Apple says it is taken.
+        PRODUCT_BUNDLE_IDENTIFIER: app.latch.personal
+        INFOPLIST_FILE: Latch/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Latch/Latch.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
