@@ -149,9 +149,13 @@ struct ModeEditor: View {
             } header: {
                 Text("Blocked")
             } footer: {
-                Text(state.isAuthorized
-                     ? draft.summary + "."
-                     : "Latch needs Screen Time access before it can list your apps.")
+                if let problem = draft.problem {
+                    Text(problem).foregroundStyle(.red)
+                } else {
+                    Text(state.isAuthorized
+                         ? draft.summary + "."
+                         : "Latch needs Screen Time access before it can list your apps.")
+                }
             }
         }
         .navigationTitle(original == nil ? "New mode" : "Edit mode")
@@ -159,6 +163,7 @@ struct ModeEditor: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save", action: save)
+                    .disabled(draft.problem != nil)
             }
         }
         .familyActivityPicker(isPresented: $showPicker, selection: $selection)

@@ -24,6 +24,9 @@ enum Shields {
 
         // Stops the escape hatch of deleting Latch (or any app) mid-lock.
         store.application.denyAppRemoval = true
+        // Stops ending a scheduled lock early by moving the clock past the
+        // window's end. Cleared again by clear().
+        store.dateAndTime.requireAutomaticDateAndTime = true
     }
 
     static func clear() {

@@ -65,6 +65,22 @@ enum SharedStore {
         static let dismissed = "scheduleDismissedUntil"
         static let legacySelection = "selection"
         static let migrated = "migratedToAppGroup"
+        static let hasPairedTag = "hasPairedTag"
+    }
+
+    /// False when this build is not entitled to the app group. Then the app
+    /// and the extension would quietly use separate storage and schedules
+    /// would never fire, so the app warns and turns schedules off.
+    static var isAppGroupAvailable: Bool {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) != nil
+    }
+
+    /// Paired tags live in the app's Keychain, which the extension can't
+    /// read. The app mirrors "is any tag paired" here so a schedule never
+    /// locks a phone that has no tag to unlock it with.
+    static var hasPairedTag: Bool {
+        get { defaults.bool(forKey: Key.hasPairedTag) }
+        set { defaults.set(newValue, forKey: Key.hasPairedTag) }
     }
 
     /// Builds before schedules kept everything in the app's own defaults.

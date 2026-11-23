@@ -37,7 +37,7 @@ Settings opens on its own the first time:
 
 1. Allow Screen Time access.
 2. Choose the apps, categories and sites to block (this fills your first mode).
-3. Pair a sticker.
+3. Pair a sticker. You scan it twice; the second scan confirms it reads the same every time.
 
 Then tap the bottom button and hold the phone to the sticker to lock.
 
@@ -45,18 +45,21 @@ Then tap the bottom button and hold the phone to the sticker to lock.
 
 - **Lock:** tap the button and scan your tag, or press and hold the button for 3 seconds to lock without the tag.
 - **Unlock:** tag only (or one of 5 lifetime emergency unlocks). Easy to start, strict to stop.
-- **Modes:** up to 10 named block lists (Deep Work, No Social…). The active mode is what a tap or hold locks. Modes can't be edited, switched or deleted while locked.
-- **Schedules:** Settings, Schedules. Lock a mode between two times on chosen days, including overnight (overnight windows must start by 11:30 PM and end at 12:15 AM or later). A schedule unlocks when its window ends, but only if it started that lock. Unlocking early with your tag ends that window; it does not lock again until the next one.
+- **Modes:** up to 10 named block lists (Deep Work, No Social…). The active mode is what a tap or hold locks. Modes can't be edited, switched or deleted while locked. Each mode is capped at 50 apps, 50 sites and 50 categories: above that, Screen Time silently blocks nothing. Use categories to cover more.
+- **Schedules:** Settings, Schedules. Lock a mode between two times on chosen days, including overnight (overnight windows must start by 11:30 PM and end at 12:15 AM or later). A schedule unlocks when its window ends, but only if it started that lock. Unlocking early with your tag ends that window; it does not lock again until the next one. Schedules need a paired tag (the last tag can't be removed while a schedule is on), never lock a mode that blocks nothing, and leave at least 5 minutes between one window's end and the next start. An end of 12:00 AM means until midnight.
 - **Time locked:** tap the "today" pill for today, the last 7 days and the daily average.
 
 ## How it holds
 
 - Blocks are enforced by iOS (ManagedSettings), so they survive force-quitting Latch and rebooting.
 - While locked, iOS refuses to delete apps, so Latch cannot be removed to escape.
-- Tags, modes and schedules can only be changed while unlocked. Settings is hidden while locked.
+- Tags, modes and schedules can only be changed while unlocked. Settings is hidden while locked, and any open sheet closes when a lock starts.
+- While locked, the date and time must stay on "Set Automatically", so moving the clock can't end a scheduled lock early.
+- If a schedule's end was missed (phone off), Latch ends that lock the next time it opens. Locks you started yourself are never ended by a schedule.
+- Phones, bank and transit cards that change their ID on every tap can't be paired, since they would never match again.
 - The emergency counter and paired tags are stored in the Keychain, so reinstalling does not reset them.
 - Schedules run in a separate Screen Time extension that iOS wakes at each window edge, so they work with Latch closed.
-- Known hole: Screen Time access for Latch can be switched off in iOS Settings. For hard mode, have someone else set your Screen Time passcode.
+- Known holes (iOS limits, not fixable in the app): Screen Time access for Latch can be switched off in iOS Settings, which lifts every block; for hard mode, have someone else set your Screen Time passcode. NFC tag IDs are not secret and can be cloned. A developer-signed install expires after a year; if that happens while locked, reinstall from the Mac.
 
 ## Layout
 

@@ -16,6 +16,20 @@ struct Mode: Codable, Identifiable, Equatable {
         self.selection = selection
     }
 
+    /// Screen Time silently stops shielding anything once a single shield
+    /// list holds more than 50 items, so a bigger mode would "lock" but
+    /// block nothing.
+    static let perKindLimit = 50
+
+    /// Why this mode can't be saved, or nil if it is fine.
+    var problem: String? {
+        if appCount > Self.perKindLimit || siteCount > Self.perKindLimit || categoryCount > Self.perKindLimit {
+            return "Pick \(Self.perKindLimit) or fewer apps, sites and categories each. "
+                + "Screen Time stops blocking anything above that. Use categories to cover more apps."
+        }
+        return nil
+    }
+
     var appCount: Int { selection.applicationTokens.count }
     var categoryCount: Int { selection.categoryTokens.count }
     var siteCount: Int { selection.webDomainTokens.count }

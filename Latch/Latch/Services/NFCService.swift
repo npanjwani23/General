@@ -37,6 +37,11 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
         guard NFCTagReaderSession.readingAvailable else {
             throw NFCScanError.unavailable
         }
+        // A second scan would overwrite the first one's continuation and
+        // leave it waiting forever.
+        guard continuation == nil else {
+            throw NFCScanError.failed("A scan is already in progress.")
+        }
         return try await withCheckedThrowingContinuation { continuation in
             guard let session = NFCTagReaderSession(
                 pollingOption: [.iso14443, .iso15693],

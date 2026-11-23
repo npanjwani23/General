@@ -26,7 +26,10 @@ enum ScheduleRegistrar {
                 (schedule.activityNames[1], DateComponents(hour: 0, minute: 0), components(schedule.endMinutes)),
             ]
         } else {
-            pieces = [(schedule.activityNames[0], components(schedule.startMinutes), components(schedule.endMinutes))]
+            let end = schedule.endsAtMidnight
+                ? DateComponents(hour: 23, minute: 59, second: 59)
+                : components(schedule.endMinutes)
+            pieces = [(schedule.activityNames[0], components(schedule.startMinutes), end)]
         }
 
         do {
@@ -40,6 +43,19 @@ enum ScheduleRegistrar {
             // Do not leave half of an overnight schedule running.
             stop(schedule.id, center: center)
             throw Failure.rejected(error.localizedDescription)
+        }
+    }
+
+    /// Re-registers enabled schedules iOS is no longer watching (for example
+    /// after a backup restore, or after Screen Time access was granted
+    /// again). Schedules still being watched are left untouched, so this
+    /// never re-fires a window that is already running.
+    static func repairMissing(_ schedules: [Schedule]) {
+        let watched = Set(DeviceActivityCenter().activities.map(\.rawValue))
+        for schedule in schedules where schedule.isEnabled {
+            if !schedule.activityNames.allSatisfy(watched.contains) {
+                try? register(schedule)
+            }
         }
     }
 

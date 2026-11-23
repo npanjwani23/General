@@ -7,6 +7,14 @@ struct SchedulesView: View {
 
     var body: some View {
         List {
+            if !SharedStore.isAppGroupAvailable {
+                Section {
+                    Label("Schedules are unavailable in this build", systemImage: "exclamationmark.triangle")
+                } footer: {
+                    Text("The app and its schedule extension need the App Groups capability (group.app.latch.personal) to share settings. See the README.")
+                }
+            }
+
             if !state.isAuthorized {
                 Section {
                     Button("Allow Screen Time access") {
@@ -43,7 +51,7 @@ struct SchedulesView: View {
                 } label: {
                     Label("New schedule", systemImage: "plus")
                 }
-                .disabled(!state.canAddSchedule || !state.isAuthorized)
+                .disabled(!state.canAddSchedule || !state.isAuthorized || !SharedStore.isAppGroupAvailable)
             } footer: {
                 Text("A schedule locks its mode when the window starts and unlocks when it ends. "
                      + "Unlocking early takes your tag, and that window then stays off until it ends. "

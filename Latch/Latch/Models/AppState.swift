@@ -12,6 +12,9 @@ final class AppState: ObservableObject {
     @Published private(set) var activeModeID: UUID?
     @Published private(set) var sessions: [LockSession] = []
     @Published private(set) var schedules: [Schedule] = []
+    /// True while an NFC scan is running, so a second tap can't start
+    /// another scan on top of it.
+    @Published private(set) var isScanning = false
 
     private let screenTime = ScreenTimeService()
     private let nfc = NFCService()
@@ -21,11 +24,16 @@ final class AppState: ObservableObject {
         loadModes()
         lock = SharedStore.loadLockState()
         tags = TagStore.loadTags() ?? []
-        emergencyUsed = TagStore.emergencyUsed() ?? 0
+        // If the counter can't be read, assume only one unlock is left
+        // rather than five; refresh() corrects it once the Keychain answers.
+        emergencyUsed = TagStore.emergencyUsed() ?? (TagStore.emergencyLimit - 1)
         sessions = LockLog.load()
         schedules = SharedStore.loadSchedules()
         observeExtension()
         refresh()
+        if isAuthorized && SharedStore.isAppGroupAvailable {
+            ScheduleRegistrar.repairMissing(schedules)
+        }
     }
 
     // MARK: Derived state
@@ -104,16 +112,23 @@ final class AppState: ObservableObject {
         if let saved = TagStore.loadTags() {
             tags = saved
         }
+        SharedStore.hasPairedTag = !tags.isEmpty
         if let used = TagStore.emergencyUsed() {
             emergencyUsed = used
         }
+        // End a schedule's lock whose window closed while the phone was off.
+        ScheduleEngine.reconcile()
         // The extension may have locked, unlocked or logged a session.
         lock = SharedStore.loadLockState()
         sessions = LockLog.load()
-        // Shields persist on their own, but re-applying keeps the system
-        // state and our saved state from drifting apart.
-        if isLocked && isAuthorized, let mode = displayMode {
-            Shields.apply(mode.selection)
+        // Make the system shields match the saved state both ways, so they
+        // can never be left up while Latch says unlocked.
+        if isLocked {
+            if isAuthorized, let mode = displayMode {
+                Shields.apply(mode.selection)
+            }
+        } else {
+            Shields.clear()
         }
     }
 
@@ -141,13 +156,30 @@ final class AppState: ObservableObject {
     }
 
     func pairTag() async {
-        guard !isLocked else { return }
+        guard !isLocked, !isScanning else { return }
+        isScanning = true
+        defer { isScanning = false }
         do {
             let uid = try await nfc.scan(prompt: "Hold your iPhone near the tag you want to pair.")
+            // Phones, bank and transit cards give a new random ID on every
+            // tap (4 bytes starting 08). Paired, they would never match again.
+            if uid.count == 8 && uid.hasPrefix("08") {
+                fail("That card changes its ID on every tap, so it can't unlock Latch. Use an NFC sticker (NTAG213 or NTAG215).")
+                return
+            }
             if tags.contains(where: { $0.id == uid }) {
                 fail("That tag is already paired.")
                 return
             }
+            // A second matching scan proves the tag reads the same every time.
+            let again = try await nfc.scan(prompt: "Hold your iPhone near the same tag once more to confirm.")
+            guard again == uid else {
+                fail("The second scan read a different ID, so the tag was not paired. Try again with the same sticker.")
+                return
+            }
+            // A schedule may have locked while the scan sheets were up.
+            lock = SharedStore.loadLockState()
+            guard !isLocked else { return }
             let updated = tags + [PairedTag(id: uid, name: "Tag \(tags.count + 1)")]
             guard TagStore.saveTags(updated) else {
                 // Showing a tag that was never saved would let it vanish on
@@ -156,6 +188,7 @@ final class AppState: ObservableObject {
                 return
             }
             tags = updated
+            SharedStore.hasPairedTag = true
             Haptics.success()
         } catch {
             report(error)
@@ -166,11 +199,16 @@ final class AppState: ObservableObject {
         guard !isLocked else { return }
         var updated = tags
         updated.remove(atOffsets: offsets)
+        if updated.isEmpty && schedules.contains(where: \.isEnabled) {
+            fail("Turn off your schedules before removing your last tag. A schedule could lock with no tag to unlock it.")
+            return
+        }
         guard TagStore.saveTags(updated) else {
             fail("Could not remove the tag. Try again.")
             return
         }
         tags = updated
+        SharedStore.hasPairedTag = !updated.isEmpty
     }
 
     // MARK: Modes (only editable while unlocked, so a lock cannot be weakened)
@@ -179,7 +217,7 @@ final class AppState: ObservableObject {
 
     @discardableResult
     func addMode(name: String, selection: FamilyActivitySelection) -> Bool {
-        guard !isLocked, canAddMode else { return false }
+        guard !isLocked, canAddMode, Mode(name: name, selection: selection).problem == nil else { return false }
         let mode = Mode(name: cleanName(name), selection: selection)
         modes.append(mode)
         if modes.count == 1 { activeModeID = mode.id }
@@ -188,7 +226,8 @@ final class AppState: ObservableObject {
     }
 
     func updateMode(_ mode: Mode) {
-        guard !isLocked, let index = modes.firstIndex(where: { $0.id == mode.id }) else { return }
+        guard !isLocked, mode.problem == nil,
+              let index = modes.firstIndex(where: { $0.id == mode.id }) else { return }
         var cleaned = mode
         cleaned.name = cleanName(mode.name)
         modes[index] = cleaned
@@ -256,6 +295,20 @@ final class AppState: ObservableObject {
         if !modes.contains(where: { $0.id == schedule.modeID }), let fallback = activeMode?.id {
             schedule.modeID = fallback
         }
+        if schedule.isEnabled {
+            if !SharedStore.isAppGroupAvailable {
+                Haptics.error()
+                return .rejected("Schedules need the App Groups capability on both Latch targets. See the README.")
+            }
+            if tags.isEmpty {
+                Haptics.error()
+                return .rejected("Pair a tag first. A schedule must never lock a phone with no tag to unlock it.")
+            }
+            if let mode = modes.first(where: { $0.id == schedule.modeID }), mode.itemCount == 0 {
+                Haptics.error()
+                return .rejected("\(mode.name) doesn't block anything yet, so this schedule would never lock. Choose apps for it first.")
+            }
+        }
         let isNew = !schedules.contains(where: { $0.id == schedule.id })
         if isNew && !canAddSchedule {
             Haptics.error()
@@ -303,7 +356,12 @@ final class AppState: ObservableObject {
 
     /// Scans a tag. A paired tag toggles the lock, anything else is rejected.
     func tapTag() async {
-        guard isLocked || isReady else { return }
+        guard isLocked || isReady, !isScanning else { return }
+        isScanning = true
+        defer { isScanning = false }
+        // Remember what this tap is for. A schedule can lock or unlock while
+        // the scan sheet is up; the scan must not then do the opposite.
+        let wantsLock = !isLocked
         do {
             let prompt = isLocked
                 ? "Hold your iPhone near your tag to unlock."
@@ -313,12 +371,11 @@ final class AppState: ObservableObject {
                 fail("That tag is not paired with Latch.")
                 return
             }
-            // A schedule may have changed the lock while the scan sheet was up.
             lock = SharedStore.loadLockState()
-            if isLocked {
-                endLock()
-            } else if isReady {
-                startLock(origin: .tag)
+            if wantsLock {
+                if !isLocked && isReady { startLock(origin: .tag) }
+            } else {
+                if isLocked { endLock() }
             }
         } catch {
             report(error)
@@ -329,13 +386,20 @@ final class AppState: ObservableObject {
     /// flexible; stopping still takes a tag (or an emergency unlock).
     func holdToLock() {
         lock = SharedStore.loadLockState()
-        guard !isLocked, isReady else { return }
+        guard !isLocked, isReady, !isScanning else { return }
         startLock(origin: .hold)
     }
 
     func emergencyUnlock() {
-        guard isLocked, emergencyRemaining > 0 else { return }
-        emergencyUsed += 1
+        guard isLocked else { return }
+        // Count from the stored value too, so a stale in-memory number can
+        // never write a lower count over a higher one.
+        let current = max(emergencyUsed, TagStore.emergencyUsed() ?? emergencyUsed)
+        guard current < TagStore.emergencyLimit else {
+            emergencyUsed = current
+            return
+        }
+        emergencyUsed = current + 1
         // Unlock even if the counter fails to save: an emergency unlock must
         // never be blocked by a storage error.
         TagStore.setEmergencyUsed(emergencyUsed)
@@ -343,17 +407,15 @@ final class AppState: ObservableObject {
     }
 
     private func startLock(origin: LockOrigin) {
-        guard let mode = activeMode else { return }
-        Shields.apply(mode.selection)
+        guard let mode = activeMode, mode.problem == nil else { return }
         lock = LockState(isLocked: true, lockedAt: Date(), origin: origin, modeID: mode.id)
         SharedStore.saveLockState(lock)
+        Shields.apply(mode.selection)
         Haptics.success()
     }
 
     private func endLock() {
-        Shields.clear()
         let now = Date()
-        sessions = LockLog.append(LockSession(start: lockedAt ?? now, end: now))
         // Unlocking during a schedule's window ends that window for today,
         // so the schedule does not lock again until its next window.
         for schedule in schedules {
@@ -361,8 +423,11 @@ final class AppState: ObservableObject {
                 SharedStore.dismiss(schedule.id, until: end)
             }
         }
+        let started = lockedAt ?? now
         lock = .unlocked
         SharedStore.saveLockState(lock)
+        Shields.clear()
+        sessions = LockLog.append(LockSession(start: started, end: now))
         Haptics.success()
     }
 
@@ -388,8 +453,10 @@ final class AppState: ObservableObject {
         // A lock from before modes existed has no mode id; tie it to the
         // migrated mode so the home screen shows what is being enforced.
         var state = SharedStore.loadLockState()
-        if state.isLocked && state.modeID == nil {
-            state.modeID = activeModeID
+        if state.isLocked && (state.modeID == nil || state.lockedAt == nil) {
+            state.modeID = state.modeID ?? activeModeID
+            // Without a start time the timer and stats can't work.
+            state.lockedAt = state.lockedAt ?? Date()
             SharedStore.saveLockState(state)
         }
         saveModes()

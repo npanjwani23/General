@@ -32,11 +32,21 @@ struct Schedule: Codable, Identifiable, Equatable {
         self.isEnabled = isEnabled
     }
 
-    var crossesMidnight: Bool { endMinutes < startMinutes }
+    /// An end of 12:00 AM means "until midnight", not an overnight window.
+    var endsAtMidnight: Bool { endMinutes == 0 && startMinutes != 0 }
+
+    /// End in minutes after the start day's midnight (1440 for midnight).
+    var effectiveEnd: Int { endsAtMidnight ? Self.dayMinutes : endMinutes }
+
+    var crossesMidnight: Bool { !endsAtMidnight && endMinutes < startMinutes }
 
     var durationMinutes: Int {
-        (endMinutes - startMinutes + Self.dayMinutes) % Self.dayMinutes
+        crossesMidnight ? Self.dayMinutes - startMinutes + endMinutes : effectiveEnd - startMinutes
     }
+
+    /// Windows closer than this to the next one would never be seen to end,
+    /// because window edges are read with a minute of slack.
+    static let minimumGapMinutes = 5
 
     // MARK: Validation
 
@@ -46,6 +56,9 @@ struct Schedule: Codable, Identifiable, Equatable {
         if startMinutes == endMinutes { return "Start and end can't be the same time." }
         if durationMinutes < Self.minimumMinutes {
             return "A schedule has to last at least \(Self.minimumMinutes) minutes."
+        }
+        if Self.dayMinutes - durationMinutes < Self.minimumGapMinutes {
+            return "Leave at least \(Self.minimumGapMinutes) minutes between the end and the next start."
         }
         if crossesMidnight {
             // Overnight windows run as two pieces (to midnight, from
@@ -89,7 +102,7 @@ struct Schedule: Codable, Identifiable, Equatable {
         guard let hour = parts.hour, let minute = parts.minute, let weekday = parts.weekday else { return false }
         let now = hour * 60 + minute
         if !crossesMidnight {
-            return weekdays.contains(weekday) && now >= startMinutes && now < endMinutes
+            return weekdays.contains(weekday) && now >= startMinutes && now < effectiveEnd
         }
         let yesterday = weekday == 1 ? 7 : weekday - 1
         return (now >= startMinutes && weekdays.contains(weekday))
@@ -102,9 +115,12 @@ struct Schedule: Codable, Identifiable, Equatable {
         let parts = calendar.dateComponents([.hour, .minute], from: date)
         let now = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
         let startOfDay = calendar.startOfDay(for: date)
-        let endsTomorrow = crossesMidnight && now >= startMinutes
+        let endsTomorrow = (crossesMidnight && now >= startMinutes) || endsAtMidnight
         guard let day = calendar.date(byAdding: .day, value: endsTomorrow ? 1 : 0, to: startOfDay) else { return nil }
-        return calendar.date(byAdding: .minute, value: endMinutes, to: day)
+        if endsAtMidnight { return day }
+        // Set the wall-clock time rather than adding minutes to midnight, so
+        // the end stays right on daylight-saving days.
+        return calendar.date(bySettingHour: endMinutes / 60, minute: endMinutes % 60, second: 0, of: day)
     }
 
     // MARK: Display

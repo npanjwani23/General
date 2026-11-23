@@ -29,6 +29,11 @@ struct HomeView: View {
         .background(Color(.systemBackground).ignoresSafeArea())
         .overlay(alignment: .topTrailing) { settingsButton }
         .animation(.easeInOut(duration: 0.35), value: state.isLocked)
+        .onChange(of: state.isLocked) { locked in
+            // A schedule can lock while a sheet is open; nothing in them may
+            // be changed while locked, so close them.
+            if locked { sheet = nil }
+        }
         .sheet(item: $sheet) { sheet in
             Group {
                 switch sheet {

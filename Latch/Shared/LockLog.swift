@@ -27,6 +27,8 @@ enum LockLog {
                        defaults: UserDefaults = SharedStore.defaults) -> [LockSession] {
         let sessions = load(defaults)
         guard session.end > session.start else { return sessions }
+        // The app and the extension can both close the same lock; log it once.
+        guard !sessions.contains(where: { abs($0.start.timeIntervalSince(session.start)) < 1 }) else { return sessions }
         let cutoff = Calendar.current.date(byAdding: .day, value: -keepDays, to: Date()) ?? .distantPast
         let updated = (sessions + [session]).filter { $0.end >= cutoff }
         if let data = try? JSONEncoder().encode(updated) {
