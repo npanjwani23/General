@@ -66,6 +66,13 @@ struct HomeView: View {
                 TimelineView(.periodic(from: lockedAt, by: 1)) { context in
                     Text(DurationText.clock(context.date.timeIntervalSince(lockedAt)))
                         .font(.system(size: 44, weight: .semibold, design: .rounded).monospacedDigit())
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                }
+                if let caption = state.lockCaption {
+                    Label(caption, systemImage: "calendar.badge.clock")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
             .accessibilityElement(children: .combine)
@@ -114,9 +121,9 @@ struct HomeView: View {
 
     private var modeInfo: some View {
         VStack(spacing: 6) {
-            Text(state.activeMode?.name ?? "Focus")
+            Text(state.displayMode?.name ?? "Focus")
                 .font(.title2.weight(.semibold))
-            Text(state.activeMode?.summary ?? "Nothing blocked yet")
+            Text(state.displayMode?.summary ?? "Nothing blocked yet")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             if !state.isLocked {

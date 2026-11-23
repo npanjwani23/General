@@ -62,6 +62,21 @@ struct SetupView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        SchedulesView()
+                    } label: {
+                        HStack {
+                            Label("Schedules", systemImage: "calendar.badge.clock")
+                            Spacer()
+                            Text(scheduleSummary)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } footer: {
+                    Text("Lock a mode automatically at set times. Unlocking early still takes your tag.")
+                }
+
+                Section {
                     HStack {
                         Text("Emergency unlocks")
                         Spacer()
@@ -81,6 +96,12 @@ struct SetupView: View {
             }
             .messageAlert(state)
         }
+    }
+
+    private var scheduleSummary: String {
+        let on = state.schedules.filter(\.isEnabled).count
+        if state.schedules.isEmpty { return "None" }
+        return on == state.schedules.count ? "\(on) on" : "\(on) of \(state.schedules.count) on"
     }
 }
 

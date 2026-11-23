@@ -12,7 +12,7 @@ enum LockLog {
     private static let key = "lockSessions"
     private static let keepDays = 60
 
-    static func load(_ defaults: UserDefaults = .standard) -> [LockSession] {
+    static func load(_ defaults: UserDefaults = SharedStore.defaults) -> [LockSession] {
         guard let data = defaults.data(forKey: key),
               let sessions = try? JSONDecoder().decode([LockSession].self, from: data) else {
             return []
@@ -20,8 +20,12 @@ enum LockLog {
         return sessions
     }
 
-    static func append(_ session: LockSession, to sessions: [LockSession],
-                       defaults: UserDefaults = .standard) -> [LockSession] {
+    /// Appends to what is stored now (not to a copy held in memory), because
+    /// the app and the schedule extension both write here.
+    @discardableResult
+    static func append(_ session: LockSession,
+                       defaults: UserDefaults = SharedStore.defaults) -> [LockSession] {
+        let sessions = load(defaults)
         guard session.end > session.start else { return sessions }
         let cutoff = Calendar.current.date(byAdding: .day, value: -keepDays, to: Date()) ?? .distantPast
         let updated = (sessions + [session]).filter { $0.end >= cutoff }

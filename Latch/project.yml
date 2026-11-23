@@ -8,11 +8,12 @@ options:
 settings:
   base:
     # Paid Apple Developer team ID (10 characters). Required for Family Controls and NFC.
+    # Applies to both the app and the schedule extension.
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
 
 targets:
   Latch:
@@ -20,11 +21,32 @@ targets:
     platform: iOS
     sources:
       - path: Latch
+      - path: Shared
+    dependencies:
+      - target: LatchMonitor
+        embed: true
     settings:
       base:
-        # Must be globally unique. Change if Apple says it is taken.
+        # Must be globally unique. Change if Apple says it is taken (and
+        # change the extension's below to match, plus the app group).
         PRODUCT_BUNDLE_IDENTIFIER: app.latch.personal
         INFOPLIST_FILE: Latch/Info.plist
         CODE_SIGN_ENTITLEMENTS: Latch/Latch.entitlements
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
+
+  # Runs scheduled locks while Latch is closed (Screen Time DeviceActivity).
+  LatchMonitor:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: LatchMonitor
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.latch.personal.monitor
+        INFOPLIST_FILE: LatchMonitor/Info.plist
+        CODE_SIGN_ENTITLEMENTS: LatchMonitor/LatchMonitor.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        APPLICATION_EXTENSION_API_ONLY: YES

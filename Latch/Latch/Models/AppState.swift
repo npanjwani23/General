@@ -4,45 +4,51 @@ import SwiftUI
 @MainActor
 final class AppState: ObservableObject {
     @Published var isAuthorized = false
-    @Published var isLocked = false
-    @Published var lockedAt: Date?
+    @Published private(set) var lock = LockState.unlocked
     @Published var tags: [PairedTag] = []
     @Published var emergencyUsed = 0
     @Published var message: String?
     @Published private(set) var modes: [Mode] = []
     @Published private(set) var activeModeID: UUID?
     @Published private(set) var sessions: [LockSession] = []
+    @Published private(set) var schedules: [Schedule] = []
 
     private let screenTime = ScreenTimeService()
     private let nfc = NFCService()
-    private let defaults = UserDefaults.standard
-
-    private enum Keys {
-        static let legacySelection = "selection"
-        static let modes = "modes"
-        static let activeModeID = "activeModeID"
-        static let isLocked = "isLocked"
-        static let lockedAt = "lockedAt"
-    }
 
     init() {
+        SharedStore.migrateIfNeeded()
         loadModes()
-        isLocked = defaults.bool(forKey: Keys.isLocked)
-        lockedAt = defaults.object(forKey: Keys.lockedAt) as? Date
+        lock = SharedStore.loadLockState()
         tags = TagStore.loadTags() ?? []
         emergencyUsed = TagStore.emergencyUsed() ?? 0
-        sessions = LockLog.load(defaults)
+        sessions = LockLog.load()
+        schedules = SharedStore.loadSchedules()
+        observeExtension()
         refresh()
     }
 
     // MARK: Derived state
 
+    var isLocked: Bool { lock.isLocked }
+    var lockedAt: Date? { lock.lockedAt }
+
     var emergencyRemaining: Int {
         max(0, TagStore.emergencyLimit - emergencyUsed)
     }
 
+    /// The mode picked on the home screen (what a tap or hold will lock).
     var activeMode: Mode? {
         modes.first { $0.id == activeModeID } ?? modes.first
+    }
+
+    /// What to show: while locked, the mode actually being enforced (a
+    /// schedule may have locked a different one).
+    var displayMode: Mode? {
+        if isLocked, let id = lock.modeID, let mode = modes.first(where: { $0.id == id }) {
+            return mode
+        }
+        return activeMode
     }
 
     var isReady: Bool {
@@ -55,6 +61,17 @@ final class AppState: ObservableObject {
         if (activeMode?.itemCount ?? 0) == 0 { return "Choose apps to block" }
         if tags.isEmpty { return "Pair a tag" }
         return nil
+    }
+
+    /// "Bedtime schedule · ends 7:00 AM" while a schedule holds the lock.
+    var lockCaption: String? {
+        guard isLocked, let id = lock.origin?.scheduleID,
+              let schedule = schedules.first(where: { $0.id == id }) else { return nil }
+        let name = schedule.name.isEmpty ? "Schedule" : schedule.name
+        if let end = schedule.windowEnd(containing: Date()) {
+            return "\(name) · ends \(end.formatted(date: .omitted, time: .shortened))"
+        }
+        return name
     }
 
     func lockedToday(now: Date = Date()) -> TimeInterval {
@@ -76,7 +93,8 @@ final class AppState: ObservableObject {
 
     // MARK: Lifecycle
 
-    /// Called on launch and whenever the app returns to the foreground.
+    /// Called on launch, on returning to the foreground, and when the
+    /// schedule extension signals a change.
     func refresh() {
         isAuthorized = screenTime.isAuthorized
         // Re-read the Keychain. If it was unreadable at launch (for example
@@ -89,11 +107,26 @@ final class AppState: ObservableObject {
         if let used = TagStore.emergencyUsed() {
             emergencyUsed = used
         }
+        // The extension may have locked, unlocked or logged a session.
+        lock = SharedStore.loadLockState()
+        sessions = LockLog.load()
         // Shields persist on their own, but re-applying keeps the system
         // state and our saved state from drifting apart.
-        if isLocked && isAuthorized, let mode = activeMode {
-            screenTime.applyShields(for: mode.selection)
+        if isLocked && isAuthorized, let mode = displayMode {
+            Shields.apply(mode.selection)
         }
+    }
+
+    private func observeExtension() {
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(), observer,
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let state = Unmanaged<AppState>.fromOpaque(observer).takeUnretainedValue()
+                Task { @MainActor in state.refresh() }
+            },
+            LockSignal.name, nil, .deliverImmediately)
     }
 
     // MARK: Setup
@@ -172,6 +205,15 @@ final class AppState: ObservableObject {
             activeModeID = modes.first?.id
         }
         saveModes()
+        // Point any schedule that used a deleted mode at one that exists.
+        if let fallback = modes.first?.id {
+            var changed = false
+            for index in schedules.indices where !modes.contains(where: { $0.id == schedules[index].modeID }) {
+                schedules[index].modeID = fallback
+                changed = true
+            }
+            if changed { SharedStore.saveSchedules(schedules) }
+        }
     }
 
     func activate(_ mode: Mode) {
@@ -180,9 +222,81 @@ final class AppState: ObservableObject {
         saveModes()
     }
 
+    func modeName(_ id: UUID) -> String {
+        modes.first { $0.id == id }?.name ?? "Missing mode"
+    }
+
     private func cleanName(_ name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "Mode \(modes.count + 1)" : String(trimmed.prefix(30))
+    }
+
+    // MARK: Schedules (only editable while unlocked)
+
+    var canAddSchedule: Bool { schedules.count < Schedule.limit }
+
+    enum ScheduleSaveResult: Equatable {
+        case saved
+        /// Saved, but iOS refused to run it, so it was turned off.
+        case savedOff(String)
+        case rejected(String)
+    }
+
+    /// Saves a new or edited schedule and registers it with iOS. The caller
+    /// shows any reason itself, so it is not lost while a screen closes.
+    @discardableResult
+    func saveSchedule(_ draft: Schedule) -> ScheduleSaveResult {
+        guard !isLocked else { return .rejected("Schedules can't be changed while locked.") }
+        if let problem = draft.problem {
+            Haptics.error()
+            return .rejected(problem)
+        }
+        var schedule = draft
+        schedule.name = String(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(30))
+        if !modes.contains(where: { $0.id == schedule.modeID }), let fallback = activeMode?.id {
+            schedule.modeID = fallback
+        }
+        let isNew = !schedules.contains(where: { $0.id == schedule.id })
+        if isNew && !canAddSchedule {
+            Haptics.error()
+            return .rejected("You can have up to \(Schedule.limit) schedules.")
+        }
+
+        var result = ScheduleSaveResult.saved
+        do {
+            try ScheduleRegistrar.register(schedule)
+        } catch {
+            // Keep what was typed, but off, so nothing half-works.
+            schedule.isEnabled = false
+            result = .savedOff(error.localizedDescription)
+            Haptics.error()
+        }
+
+        if let index = schedules.firstIndex(where: { $0.id == schedule.id }) {
+            schedules[index] = schedule
+        } else {
+            schedules.append(schedule)
+        }
+        SharedStore.saveSchedules(schedules)
+        return result
+    }
+
+    @discardableResult
+    func setScheduleEnabled(_ id: UUID, _ enabled: Bool) -> ScheduleSaveResult {
+        guard var schedule = schedules.first(where: { $0.id == id }) else {
+            return .rejected("That schedule no longer exists.")
+        }
+        schedule.isEnabled = enabled
+        return saveSchedule(schedule)
+    }
+
+    func deleteSchedules(at offsets: IndexSet) {
+        guard !isLocked else { return }
+        for index in offsets {
+            ScheduleRegistrar.stop(schedules[index].id)
+        }
+        schedules.remove(atOffsets: offsets)
+        SharedStore.saveSchedules(schedules)
     }
 
     // MARK: Lock and unlock
@@ -199,10 +313,12 @@ final class AppState: ObservableObject {
                 fail("That tag is not paired with Latch.")
                 return
             }
+            // A schedule may have changed the lock while the scan sheet was up.
+            lock = SharedStore.loadLockState()
             if isLocked {
-                unlock()
-            } else {
-                lock()
+                endLock()
+            } else if isReady {
+                startLock(origin: .tag)
             }
         } catch {
             report(error)
@@ -212,8 +328,9 @@ final class AppState: ObservableObject {
     /// Press-and-hold lock, for when the tag is not nearby. Starting is
     /// flexible; stopping still takes a tag (or an emergency unlock).
     func holdToLock() {
+        lock = SharedStore.loadLockState()
         guard !isLocked, isReady else { return }
-        lock()
+        startLock(origin: .hold)
     }
 
     func emergencyUnlock() {
@@ -222,37 +339,40 @@ final class AppState: ObservableObject {
         // Unlock even if the counter fails to save: an emergency unlock must
         // never be blocked by a storage error.
         TagStore.setEmergencyUsed(emergencyUsed)
-        unlock()
+        endLock()
     }
 
-    private func lock() {
+    private func startLock(origin: LockOrigin) {
         guard let mode = activeMode else { return }
-        screenTime.applyShields(for: mode.selection)
-        isLocked = true
-        lockedAt = Date()
-        saveLockState()
+        Shields.apply(mode.selection)
+        lock = LockState(isLocked: true, lockedAt: Date(), origin: origin, modeID: mode.id)
+        SharedStore.saveLockState(lock)
         Haptics.success()
     }
 
-    private func unlock() {
-        screenTime.clearShields()
+    private func endLock() {
+        Shields.clear()
         let now = Date()
-        sessions = LockLog.append(LockSession(start: lockedAt ?? now, end: now),
-                                  to: sessions, defaults: defaults)
-        isLocked = false
-        lockedAt = nil
-        saveLockState()
+        sessions = LockLog.append(LockSession(start: lockedAt ?? now, end: now))
+        // Unlocking during a schedule's window ends that window for today,
+        // so the schedule does not lock again until its next window.
+        for schedule in schedules {
+            if let end = schedule.windowEnd(containing: now) {
+                SharedStore.dismiss(schedule.id, until: end)
+            }
+        }
+        lock = .unlocked
+        SharedStore.saveLockState(lock)
         Haptics.success()
     }
 
     // MARK: Persistence
 
     private func loadModes() {
-        if let data = defaults.data(forKey: Keys.modes),
-           let saved = try? JSONDecoder().decode([Mode].self, from: data) {
-            modes = saved
-        } else if let data = defaults.data(forKey: Keys.legacySelection),
-                  let legacy = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
+        modes = SharedStore.loadModes()
+        if modes.isEmpty,
+           let data = SharedStore.defaults.data(forKey: SharedStore.Key.legacySelection),
+           let legacy = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
             // Builds before modes kept one selection. Carry it over so an
             // existing lock keeps blocking the same apps.
             modes = [Mode(name: "Focus", selection: legacy)]
@@ -260,25 +380,23 @@ final class AppState: ObservableObject {
         if modes.isEmpty {
             modes = [Mode(name: "Focus")]
         }
-        if let raw = defaults.string(forKey: Keys.activeModeID), let id = UUID(uuidString: raw),
-           modes.contains(where: { $0.id == id }) {
+        if let id = SharedStore.activeModeID, modes.contains(where: { $0.id == id }) {
             activeModeID = id
         } else {
             activeModeID = modes.first?.id
+        }
+        // A lock from before modes existed has no mode id; tie it to the
+        // migrated mode so the home screen shows what is being enforced.
+        var state = SharedStore.loadLockState()
+        if state.isLocked && state.modeID == nil {
+            state.modeID = activeModeID
+            SharedStore.saveLockState(state)
         }
         saveModes()
     }
 
     private func saveModes() {
-        if let data = try? JSONEncoder().encode(modes) {
-            defaults.set(data, forKey: Keys.modes)
-        }
-        defaults.set(activeModeID?.uuidString, forKey: Keys.activeModeID)
-    }
-
-    private func saveLockState() {
-        defaults.set(isLocked, forKey: Keys.isLocked)
-        defaults.set(lockedAt, forKey: Keys.lockedAt)
+        SharedStore.saveModes(modes, activeID: activeModeID)
     }
 
     private func fail(_ text: String) {
