@@ -30,8 +30,8 @@ final class AppState: ObservableObject {
         }
         isLocked = defaults.bool(forKey: Keys.isLocked)
         lockedAt = defaults.object(forKey: Keys.lockedAt) as? Date
-        tags = TagStore.loadTags()
-        emergencyUsed = TagStore.emergencyUsed()
+        tags = TagStore.loadTags() ?? []
+        emergencyUsed = TagStore.emergencyUsed() ?? 0
         refresh()
     }
 
@@ -56,6 +56,16 @@ final class AppState: ObservableObject {
     /// Called on launch and whenever the app returns to the foreground.
     func refresh() {
         isAuthorized = screenTime.isAuthorized
+        // Re-read the Keychain. If it was unreadable at launch (for example
+        // iOS started the app before the phone was first unlocked), the tags
+        // would otherwise stay missing and a locked phone could not be
+        // unlocked by tag. A failed read keeps what is already in memory.
+        if let saved = TagStore.loadTags() {
+            tags = saved
+        }
+        if let used = TagStore.emergencyUsed() {
+            emergencyUsed = used
+        }
         // Shields persist on their own, but re-applying keeps the system
         // state and our saved state from drifting apart.
         if isLocked && isAuthorized {
@@ -82,8 +92,14 @@ final class AppState: ObservableObject {
                 message = "That tag is already paired."
                 return
             }
-            tags.append(PairedTag(id: uid, name: "Tag \(tags.count + 1)"))
-            TagStore.saveTags(tags)
+            let updated = tags + [PairedTag(id: uid, name: "Tag \(tags.count + 1)")]
+            guard TagStore.saveTags(updated) else {
+                // Showing a tag that was never saved would let it vanish on
+                // the next launch, possibly while locked.
+                message = "Could not save the tag. It was not paired. Try again."
+                return
+            }
+            tags = updated
         } catch {
             report(error)
         }
@@ -91,8 +107,13 @@ final class AppState: ObservableObject {
 
     func removeTags(at offsets: IndexSet) {
         guard !isLocked else { return }
-        tags.remove(atOffsets: offsets)
-        TagStore.saveTags(tags)
+        var updated = tags
+        updated.remove(atOffsets: offsets)
+        guard TagStore.saveTags(updated) else {
+            message = "Could not remove the tag. Try again."
+            return
+        }
+        tags = updated
     }
 
     // MARK: Lock and unlock
@@ -122,6 +143,8 @@ final class AppState: ObservableObject {
     func emergencyUnlock() {
         guard isLocked, emergencyRemaining > 0 else { return }
         emergencyUsed += 1
+        // Unlock even if the counter fails to save: an emergency unlock must
+        // never be blocked by a storage error.
         TagStore.setEmergencyUsed(emergencyUsed)
         unlock()
     }

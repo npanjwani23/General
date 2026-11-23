@@ -17,34 +17,52 @@ enum TagStore {
     private static let tagsKey = "pairedTags"
     private static let emergencyKey = "emergencyUsed"
 
-    static func loadTags() -> [PairedTag] {
-        guard let data = read(tagsKey),
-              let tags = try? JSONDecoder().decode([PairedTag].self, from: data) else {
+    /// Returns nil when the Keychain could not be read (as opposed to
+    /// holding no tags), so callers do not mistake a failed read for
+    /// "nothing paired" and wipe what they already have in memory.
+    static func loadTags() -> [PairedTag]? {
+        switch read(tagsKey) {
+        case .missing:
             return []
-        }
-        return tags
-    }
-
-    static func saveTags(_ tags: [PairedTag]) {
-        if let data = try? JSONEncoder().encode(tags) {
-            write(tagsKey, data)
+        case .failed:
+            return nil
+        case .found(let data):
+            return try? JSONDecoder().decode([PairedTag].self, from: data)
         }
     }
 
-    static func emergencyUsed() -> Int {
-        guard let data = read(emergencyKey),
-              let text = String(data: data, encoding: .utf8),
-              let value = Int(text) else {
+    /// Returns false if the tags could not be saved.
+    static func saveTags(_ tags: [PairedTag]) -> Bool {
+        guard let data = try? JSONEncoder().encode(tags) else { return false }
+        return write(tagsKey, data)
+    }
+
+    /// Returns nil when the Keychain could not be read.
+    static func emergencyUsed() -> Int? {
+        switch read(emergencyKey) {
+        case .missing:
             return 0
+        case .failed:
+            return nil
+        case .found(let data):
+            guard let text = String(data: data, encoding: .utf8) else { return nil }
+            return Int(text)
         }
-        return value
     }
 
-    static func setEmergencyUsed(_ value: Int) {
+    /// Returns false if the counter could not be saved.
+    @discardableResult
+    static func setEmergencyUsed(_ value: Int) -> Bool {
         write(emergencyKey, Data(String(value).utf8))
     }
 
     // MARK: Keychain
+
+    private enum ReadResult {
+        case found(Data)
+        case missing
+        case failed(OSStatus)
+    }
 
     private static func baseQuery(_ key: String) -> [String: Any] {
         [
@@ -54,25 +72,31 @@ enum TagStore {
         ]
     }
 
-    private static func read(_ key: String) -> Data? {
+    private static func read(_ key: String) -> ReadResult {
         var query = baseQuery(key)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else {
-            return nil
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data else { return .failed(status) }
+            return .found(data)
+        case errSecItemNotFound:
+            return .missing
+        default:
+            return .failed(status)
         }
-        return result as? Data
     }
 
-    private static func write(_ key: String, _ data: Data) {
+    private static func write(_ key: String, _ data: Data) -> Bool {
         let update: [String: Any] = [kSecValueData as String: data]
         let status = SecItemUpdate(baseQuery(key) as CFDictionary, update as CFDictionary)
-        if status == errSecItemNotFound {
-            var add = baseQuery(key)
-            add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-            SecItemAdd(add as CFDictionary, nil)
-        }
+        if status == errSecSuccess { return true }
+        guard status == errSecItemNotFound else { return false }
+        var add = baseQuery(key)
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 }
