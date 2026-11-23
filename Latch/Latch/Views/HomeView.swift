@@ -1,184 +1,220 @@
-import FamilyControls
 import SwiftUI
 
+/// The whole app on one screen. Light while unlocked, dark while locked, so
+/// the state reads at a glance. Everything else lives in sheets.
 struct HomeView: View {
     @EnvironmentObject private var state: AppState
-    @State private var showPicker = false
-    @State private var showTags = false
+    @AppStorage("didShowSetup") private var didShowSetup = false
+    @State private var sheet: HomeSheet?
     @State private var confirmEmergency = false
+    @State private var holdProgress: Double = 0
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 32) {
-                    lockButton
-                    statusText
-                    if state.isLocked {
-                        emergencySection
-                    } else {
-                        setupSection
-                    }
+        VStack(spacing: 0) {
+            header
+                .padding(.top, 12)
+            Spacer(minLength: 24)
+            mark
+            modeInfo
+                .padding(.top, 28)
+            Spacer(minLength: 24)
+            control
+            footer
+                .frame(height: 44)
+                .padding(.top, 8)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground).ignoresSafeArea())
+        .overlay(alignment: .topTrailing) { settingsButton }
+        .animation(.easeInOut(duration: 0.35), value: state.isLocked)
+        .sheet(item: $sheet) { sheet in
+            Group {
+                switch sheet {
+                case .setup: SetupView()
+                case .modes: ModesView()
+                case .stats: StatsView()
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 40)
-                .padding(.bottom, 24)
             }
-            .navigationTitle("Latch")
-            .navigationBarTitleDisplayMode(.inline)
+            .environmentObject(state)
         }
-        .familyActivityPicker(isPresented: $showPicker, selection: $state.selection)
-        .sheet(isPresented: $showTags) {
-            TagsView().environmentObject(state)
-        }
-        .alert("Latch", isPresented: messageBinding) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(state.message ?? "")
-        }
+        .messageAlert(state, isActive: sheet == nil)
         .alert("Use an emergency unlock?", isPresented: $confirmEmergency) {
             Button("Unlock", role: .destructive) { state.emergencyUnlock() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You have \(state.emergencyRemaining) of \(TagStore.emergencyLimit) left. They do not come back.")
         }
+        .onAppear {
+            if !didShowSetup && !state.isReady && !state.isLocked {
+                didShowSetup = true
+                sheet = .setup
+            }
+        }
     }
 
-    private var messageBinding: Binding<Bool> {
-        Binding(
-            // While the tags sheet is up, it shows the alert instead.
-            get: { state.message != nil && !showTags },
-            set: { if !$0 { state.message = nil } }
+    // MARK: Header: today's total, or the live lock timer
+
+    @ViewBuilder
+    private var header: some View {
+        if state.isLocked, let lockedAt = state.lockedAt {
+            VStack(spacing: 6) {
+                Text("Locked for")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                TimelineView(.periodic(from: lockedAt, by: 1)) { context in
+                    Text(DurationText.clock(context.date.timeIntervalSince(lockedAt)))
+                        .font(.system(size: 44, weight: .semibold, design: .rounded).monospacedDigit())
+                }
+            }
+            .accessibilityElement(children: .combine)
+        } else {
+            Button { sheet = .stats } label: {
+                TimelineView(.everyMinute) { context in
+                    HStack(spacing: 6) {
+                        Text(DurationText.short(state.lockedToday(now: context.date)))
+                            .fontWeight(.semibold)
+                        Text("today")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color(.secondarySystemBackground), in: Capsule())
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows time locked this week")
+        }
+    }
+
+    // MARK: Center mark
+
+    private var mark: some View {
+        ZStack {
+            Circle()
+                .fill(state.isLocked ? Color.orange : Color(.secondarySystemBackground))
+            Circle()
+                .strokeBorder(Color.orange.opacity(state.isLocked ? 0 : 0.35), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: holdProgress)
+                .stroke(Color.orange, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .padding(3)
+            Image(systemName: state.isLocked ? "lock.fill" : "lock.open.fill")
+                .font(.system(size: 64, weight: .semibold))
+                .foregroundStyle(state.isLocked ? Color.black : Color.orange)
+        }
+        .frame(width: 210, height: 210)
+        .accessibilityHidden(true)
+    }
+
+    // MARK: Mode name and what it blocks
+
+    private var modeInfo: some View {
+        VStack(spacing: 6) {
+            Text(state.activeMode?.name ?? "Focus")
+                .font(.title2.weight(.semibold))
+            Text(state.activeMode?.summary ?? "Nothing blocked yet")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if !state.isLocked {
+                Button { sheet = .modes } label: {
+                    HStack(spacing: 4) {
+                        Text("Manage modes")
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 12)
+                    .contentShape(Rectangle())
+                }
+                .padding(.top, 2)
+            }
+        }
+        .multilineTextAlignment(.center)
+    }
+
+    // MARK: Bottom action
+
+    private var control: some View {
+        LockControl(
+            title: controlTitle,
+            holdTitle: "Keep holding to lock",
+            allowsHold: !state.isLocked && state.isReady,
+            prominent: state.isLocked,
+            progress: $holdProgress,
+            onTap: {
+                if state.isLocked || state.isReady {
+                    Task { await state.tapTag() }
+                } else {
+                    sheet = .setup
+                }
+            },
+            onHold: { state.holdToLock() }
         )
     }
 
-    // MARK: Lock button
-
-    private var lockButton: some View {
-        Button {
-            Task { await state.tapTag() }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(state.isLocked ? Color.orange : Color(.secondarySystemBackground))
-                Circle()
-                    .strokeBorder(Color.orange.opacity(state.isLocked ? 0 : 0.6), lineWidth: 2)
-                VStack(spacing: 10) {
-                    Image(systemName: state.isLocked ? "lock.fill" : "lock.open.fill")
-                        .font(.system(size: 56, weight: .semibold))
-                    Text(state.isLocked ? "Tap tag to unlock" : "Tap tag to lock")
-                        .font(.headline)
-                }
-                .foregroundStyle(state.isLocked ? Color.black : Color.orange)
-            }
-            .frame(width: 230, height: 230)
-        }
-        .buttonStyle(.plain)
-        .disabled(!state.isLocked && !state.isReady)
-        .opacity(!state.isLocked && !state.isReady ? 0.4 : 1)
+    private var controlTitle: String {
+        if state.isLocked { return "Tap tag to unlock" }
+        if state.isReady { return "Tap or hold to lock" }
+        return state.nextSetupStep.map { "Set up: \($0)" } ?? "Finish setup"
     }
 
     @ViewBuilder
-    private var statusText: some View {
-        if state.isLocked, let lockedAt = state.lockedAt {
-            VStack(spacing: 6) {
-                Text("Locked")
-                    .font(.title2.bold())
-                Text(lockedAt, style: .timer)
-                    .font(.title3.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-        } else if state.isReady {
-            Text("Ready. Blocking \(state.selectionCount) item\(state.selectionCount == 1 ? "" : "s").")
-                .foregroundStyle(.secondary)
-        } else {
-            Text("Finish setup below to start.")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: Setup rows (unlocked only)
-
-    private var setupSection: some View {
-        VStack(spacing: 12) {
-            SetupRow(
-                icon: "hourglass",
-                title: "Screen Time access",
-                detail: state.isAuthorized ? "Allowed" : "Required to block apps",
-                done: state.isAuthorized
-            ) {
-                Task { await state.requestAuthorization() }
-            }
-            .disabled(state.isAuthorized)
-
-            SetupRow(
-                icon: "square.grid.2x2",
-                title: "Blocked apps and sites",
-                detail: state.selectionCount > 0 ? "\(state.selectionCount) selected" : "Choose what to block",
-                done: state.selectionCount > 0
-            ) {
-                showPicker = true
-            }
-            .disabled(!state.isAuthorized)
-
-            SetupRow(
-                icon: "wave.3.right",
-                title: "NFC tags",
-                detail: state.tags.isEmpty ? "Pair your first tag" : "\(state.tags.count) paired",
-                done: !state.tags.isEmpty
-            ) {
-                showTags = true
-            }
-        }
-    }
-
-    // MARK: Emergency (locked only)
-
-    private var emergencySection: some View {
-        VStack(spacing: 8) {
-            Button("Emergency unlock") {
+    private var footer: some View {
+        if state.isLocked {
+            Button {
                 confirmEmergency = true
+            } label: {
+                Text("Emergency unlock · \(state.emergencyRemaining) left")
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
+            .foregroundStyle(.secondary)
             .disabled(state.emergencyRemaining == 0)
-            Text("\(state.emergencyRemaining) of \(TagStore.emergencyLimit) remaining")
+        } else if state.isReady {
+            Text("Hold for 3 seconds to lock without your tag. Unlocking always needs the tag.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
-        .padding(.top, 24)
+    }
+
+    // MARK: Settings (unlocked only, so a lock cannot be undone from here)
+
+    @ViewBuilder
+    private var settingsButton: some View {
+        if !state.isLocked {
+            Button { sheet = .setup } label: {
+                Image(systemName: "gearshape")
+                    .font(.title3)
+                    .frame(width: 44, height: 44)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.trailing, 12)
+            .accessibilityLabel("Settings")
+        }
     }
 }
 
-private struct SetupRow: View {
-    let icon: String
-    let title: String
-    let detail: String
-    let done: Bool
-    let action: () -> Void
+enum HomeSheet: String, Identifiable {
+    case setup, modes, stats
+    var id: String { rawValue }
+}
 
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(.title3)
-                    .frame(width: 30)
-                    .foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                    Text(detail)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: done ? "checkmark.circle.fill" : "chevron.right")
-                    .foregroundStyle(done ? Color.green : Color.secondary)
-            }
-            .padding(16)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
-            // A plain-style button only hit-tests its drawn content, so the
-            // Spacer gap in the middle of the card ignored taps without this.
-            .contentShape(RoundedRectangle(cornerRadius: 14))
+extension View {
+    /// Shows `state.message` as an alert. Only one presenter should be active
+    /// at a time, so the home screen hands off while a sheet is up.
+    func messageAlert(_ state: AppState, isActive: Bool = true) -> some View {
+        alert("Latch", isPresented: Binding(
+            get: { isActive && state.message != nil },
+            set: { if !$0 { state.message = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(state.message ?? "")
         }
-        .buttonStyle(.plain)
     }
 }
