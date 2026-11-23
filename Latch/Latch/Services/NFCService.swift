@@ -22,6 +22,18 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
     private var continuation: CheckedContinuation<String, Error>?
 
     func scan(prompt: String) async throws -> String {
+        #if targetEnvironment(simulator)
+        // The simulator has no NFC radio. Pretend one fixed tag was tapped so
+        // the pair, lock and unlock flows can be exercised. Never compiled
+        // into a device build.
+        try await Task.sleep(nanoseconds: 400_000_000)
+        return "04A1B2C3D4E5F6"
+        #else
+        return try await scanDevice(prompt: prompt)
+        #endif
+    }
+
+    private func scanDevice(prompt: String) async throws -> String {
         guard NFCTagReaderSession.readingAvailable else {
             throw NFCScanError.unavailable
         }
