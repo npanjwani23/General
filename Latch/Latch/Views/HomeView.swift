@@ -175,6 +175,9 @@ private struct SetupRow: View {
             }
             .padding(16)
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            // A plain-style button only hit-tests its drawn content, so the
+            // Spacer gap in the middle of the card ignored taps without this.
+            .contentShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
     }
