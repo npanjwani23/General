@@ -4,6 +4,7 @@ enum NFCScanError: LocalizedError {
     case unavailable
     case cancelled
     case unreadable
+    case busy
     case failed(String)
 
     var errorDescription: String? {
@@ -11,6 +12,7 @@ enum NFCScanError: LocalizedError {
         case .unavailable: return "NFC is not available on this device."
         case .cancelled: return nil
         case .unreadable: return "Could not read that tag. Try again."
+        case .busy: return "iOS says the NFC reader is busy. Close Wallet and the Camera, turn off iPhone Mirroring, then try again. If it keeps happening, restart the iPhone."
         case .failed(let message): return message
         }
     }
@@ -29,7 +31,18 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
         try await Task.sleep(nanoseconds: 400_000_000)
         return "04A1B2C3D4E5F6"
         #else
-        return try await scanDevice(prompt: prompt)
+        // iOS refuses a new scan for a second or two after the last scan
+        // sheet closes (pairing scans twice in a row), and whenever another
+        // app holds the reader. Wait and retry before giving up.
+        var attempt = 0
+        while true {
+            do {
+                return try await scanDevice(prompt: prompt)
+            } catch NFCScanError.busy where attempt < 4 {
+                attempt += 1
+                try await Task.sleep(nanoseconds: 1_200_000_000)
+            }
+        }
         #endif
     }
 
@@ -77,8 +90,12 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
         } else if let nfcError = error as? NFCReaderError,
                   nfcError.code == .readerSessionInvalidationErrorSessionTimeout {
             finish(.failure(NFCScanError.failed("No tag found. Try again.")))
+        } else if let nfcError = error as? NFCReaderError,
+                  nfcError.code == .readerSessionInvalidationErrorSystemIsBusy {
+            finish(.failure(NFCScanError.busy))
         } else {
-            finish(.failure(NFCScanError.failed(error.localizedDescription)))
+            let code = (error as NSError).code
+            finish(.failure(NFCScanError.failed("\(error.localizedDescription) (NFC error \(code))")))
         }
     }
 
