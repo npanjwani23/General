@@ -1,0 +1,53 @@
+name: Clarity
+options:
+  bundleIdPrefix: com.npanjwani
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Paid Apple Developer team ID (10 characters). Required for Family Controls and NFC.
+    # Applies to both the app and the schedule extension.
+    DEVELOPMENT_TEAM: "823U4N767A"
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
+
+targets:
+  Clarity:
+    type: application
+    platform: iOS
+    sources:
+      - path: Clarity
+      - path: Shared
+    dependencies:
+      - target: ClarityMonitor
+        embed: true
+    settings:
+      base:
+        # Must be globally unique. Change if Apple says it is taken (and
+        # change the extension's below to match, plus the app group).
+        PRODUCT_BUNDLE_IDENTIFIER: com.npanjwani.clarity
+        INFOPLIST_FILE: Clarity/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Clarity/Clarity.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+
+  # Runs scheduled locks while Clarity is closed (Screen Time DeviceActivity).
+  ClarityMonitor:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ClarityMonitor
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.npanjwani.clarity.monitor
+        INFOPLIST_FILE: ClarityMonitor/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ClarityMonitor/ClarityMonitor.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        APPLICATION_EXTENSION_API_ONLY: YES
