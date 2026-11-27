@@ -9,7 +9,7 @@ settings:
   base:
     # Paid Apple Developer team ID (10 characters). Required for Family Controls and NFC.
     # Applies to both the app and the schedule extension.
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: "823U4N767A"
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "0.2.0"
