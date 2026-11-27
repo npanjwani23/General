@@ -160,7 +160,9 @@ final class AppState: ObservableObject {
         isScanning = true
         defer { isScanning = false }
         do {
-            let uid = try await nfc.scan(prompt: "Hold your iPhone near the tag you want to pair.")
+            // One hold, two reads: the second proves the tag gives the same
+            // ID every time.
+            let uid = try await nfc.scan(prompt: "Hold your iPhone near the tag you want to pair.", readTwice: true)
             // Phones, bank and transit cards give a new random ID on every
             // tap (4 bytes starting 08). Paired, they would never match again.
             if uid.count == 8 && uid.hasPrefix("08") {
@@ -171,13 +173,7 @@ final class AppState: ObservableObject {
                 fail("That tag is already paired.")
                 return
             }
-            // A second matching scan proves the tag reads the same every time.
-            let again = try await nfc.scan(prompt: "Hold your iPhone near the same tag once more to confirm.")
-            guard again == uid else {
-                fail("The second scan read a different ID, so the tag was not paired. Try again with the same sticker.")
-                return
-            }
-            // A schedule may have locked while the scan sheets were up.
+            // A schedule may have locked while the scan sheet was up.
             lock = SharedStore.loadLockState()
             guard !isLocked else { return }
             let updated = tags + [PairedTag(id: uid, name: "Tag \(tags.count + 1)")]

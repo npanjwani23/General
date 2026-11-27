@@ -5,6 +5,7 @@ enum NFCScanError: LocalizedError {
     case cancelled
     case unreadable
     case busy
+    case unstable
     case failed(String)
 
     var errorDescription: String? {
@@ -12,6 +13,7 @@ enum NFCScanError: LocalizedError {
         case .unavailable: return "NFC is not available on this device."
         case .cancelled: return nil
         case .unreadable: return "Could not read that tag. Try again."
+        case .unstable: return "That tag gave a different ID on the second read, so it can't unlock Latch. Use an NFC sticker (NTAG213 or NTAG215)."
         case .busy: return "iOS says the NFC reader is busy. Close Wallet and the Camera, turn off iPhone Mirroring, then try again. If it keeps happening, restart the iPhone."
         case .failed(let message): return message
         }
@@ -22,10 +24,15 @@ enum NFCScanError: LocalizedError {
 final class NFCService: NSObject, NFCTagReaderSessionDelegate {
     private var session: NFCTagReaderSession?
     private var continuation: CheckedContinuation<String, Error>?
-    /// A tag ID that was read, held until iOS has closed the scan sheet.
-    private var readID: String?
+    /// The outcome of a read, held until iOS has closed the scan sheet.
+    private var outcome: Result<String, Error>?
+    /// Pairing reads the tag twice in one go, to prove its ID is stable.
+    private var readsTwice = false
+    private var firstRead: String?
 
-    func scan(prompt: String) async throws -> String {
+    /// `readTwice` keeps the same sheet up and reads the tag a second time,
+    /// failing with `.unstable` if the two IDs differ.
+    func scan(prompt: String, readTwice: Bool = false) async throws -> String {
         #if targetEnvironment(simulator)
         // The simulator has no NFC radio. Pretend one fixed tag was tapped so
         // the pair, lock and unlock flows can be exercised. Never compiled
@@ -39,7 +46,7 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
         var attempt = 0
         while true {
             do {
-                return try await scanDevice(prompt: prompt)
+                return try await scanDevice(prompt: prompt, readTwice: readTwice)
             } catch NFCScanError.busy where attempt < 4 {
                 attempt += 1
                 try await Task.sleep(nanoseconds: 1_200_000_000)
@@ -48,7 +55,7 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
         #endif
     }
 
-    private func scanDevice(prompt: String) async throws -> String {
+    private func scanDevice(prompt: String, readTwice: Bool) async throws -> String {
         guard NFCTagReaderSession.readingAvailable else {
             throw NFCScanError.unavailable
         }
@@ -68,6 +75,7 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
             }
             self.continuation = continuation
             self.session = session
+            self.readsTwice = readTwice
             session.alertMessage = prompt
             session.begin()
         }
@@ -77,7 +85,8 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
         guard let continuation else { return }
         self.continuation = nil
         self.session = nil
-        self.readID = nil
+        self.outcome = nil
+        self.firstRead = nil
         continuation.resume(with: result)
     }
 
@@ -92,8 +101,8 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
         guard session === self.session else { return }
         // Our own invalidate() after a good read lands here too. Only now is
         // the sheet gone, so the next scan (pairing asks twice) can open.
-        if let readID {
-            finish(.success(readID))
+        if let outcome {
+            finish(outcome)
             return
         }
         if let nfcError = error as? NFCReaderError,
@@ -112,7 +121,7 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
     }
 
     func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
-        guard session === self.session, readID == nil, let tag = tags.first else { return }
+        guard session === self.session, outcome == nil, let tag = tags.first else { return }
 
         let identifier: Data?
         switch tag {
@@ -124,14 +133,30 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
         }
 
         guard let identifier, !identifier.isEmpty else {
+            outcome = .failure(NFCScanError.unreadable)
             session.invalidate(errorMessage: "Could not read that tag.")
-            finish(.failure(NFCScanError.unreadable))
             return
         }
 
         let hex = identifier.map { String(format: "%02X", $0) }.joined()
-        session.alertMessage = "Tag read."
-        readID = hex
+        if readsTwice && firstRead == nil {
+            // Keep the sheet up and read again. The tag answers afresh each
+            // time, so a card with a changing ID shows up here.
+            firstRead = hex
+            session.alertMessage = "Checking the tag. Keep holding."
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, session === self.session, self.outcome == nil else { return }
+                session.restartPolling()
+            }
+            return
+        }
+        if readsTwice && firstRead != hex {
+            outcome = .failure(NFCScanError.unstable)
+            session.invalidate(errorMessage: "This tag changes its ID.")
+            return
+        }
+        session.alertMessage = readsTwice ? "Tag paired." : "Tag read."
+        outcome = .success(hex)
         session.invalidate()
     }
 }
