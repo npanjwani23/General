@@ -39,7 +39,7 @@ struct SchedulesView: View {
                             case .savedOff(let reason), .rejected(let reason): alertText = reason
                             }
                         }
-                        .tint(schedule.isEnabled ? .gray : .orange)
+                        .tint(schedule.isEnabled ? .gray : Theme.accent)
                     }
                 }
                 .onDelete { state.deleteSchedules(at: $0) }
@@ -221,7 +221,7 @@ private struct WeekdayPicker: View {
                     Text(Calendar.current.veryShortWeekdaySymbols[day - 1])
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 40)
-                        .background(on ? Color.orange : Color(.tertiarySystemFill), in: Circle())
+                        .background(on ? Theme.accent : Color(.tertiarySystemFill), in: Circle())
                         .foregroundStyle(on ? Color.black : Color.primary)
                 }
                 .buttonStyle(.plain)

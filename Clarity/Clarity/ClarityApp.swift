@@ -12,7 +12,7 @@ struct ClarityApp: App {
                 // Light while unlocked, dark while locked: the state shows
                 // at a glance before reading anything.
                 .preferredColorScheme(state.isLocked ? .dark : .light)
-                .tint(.orange)
+                .tint(state.isLocked ? Theme.glow : Theme.accent)
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {

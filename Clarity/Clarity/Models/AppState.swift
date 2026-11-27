@@ -82,6 +82,13 @@ final class AppState: ObservableObject {
         return name
     }
 
+    /// When the current lock ends on its own, if a schedule holds it.
+    var lockEnd: Date? {
+        guard isLocked, let id = lock.origin?.scheduleID,
+              let schedule = schedules.first(where: { $0.id == id }) else { return nil }
+        return schedule.windowEnd(containing: Date())
+    }
+
     func lockedToday(now: Date = Date()) -> TimeInterval {
         LockLog.lockedSeconds(in: LockLog.day(containing: now), sessions: sessions,
                               liveStart: isLocked ? lockedAt : nil, now: now)

@@ -65,9 +65,9 @@ enum DurationText {
         return h > 0 ? "\(h)h \(m)m" : "\(m)m"
     }
 
-    /// "0h 12m 03s" for the live lock timer.
+    /// "0:12:03" for the live lock timer.
     static func clock(_ seconds: TimeInterval) -> String {
         let total = max(0, Int(seconds))
-        return String(format: "%dh %02dm %02ds", total / 3600, (total % 3600) / 60, total % 60)
+        return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
     }
 }

@@ -33,7 +33,7 @@ struct StatsView: View {
                                 x: .value("Day", item.day, unit: .day),
                                 y: .value(inHours ? "Hours" : "Minutes", item.seconds / unit)
                             )
-                            .foregroundStyle(Color.orange)
+                            .foregroundStyle(Theme.accent)
                             .cornerRadius(4)
                         }
                         .chartXAxis {

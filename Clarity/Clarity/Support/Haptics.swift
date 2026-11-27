@@ -16,6 +16,16 @@ enum Haptics {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
+    /// Very light tap for button presses.
+    static func soft() {
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.6)
+    }
+
+    /// Selection change, such as picking a mode.
+    static func select() {
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
     static func heavy() {
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
     }

@@ -120,7 +120,7 @@ private struct StepRow: View {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(done ? Color.green : Color.orange.opacity(0.15))
+                    .fill(done ? Theme.accent : Theme.lavender.opacity(0.6))
                 if done {
                     Image(systemName: "checkmark")
                         .font(.footnote.weight(.bold))
@@ -128,7 +128,7 @@ private struct StepRow: View {
                 } else {
                     Text("\(number)")
                         .font(.footnote.weight(.bold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Theme.accent)
                 }
             }
             .frame(width: 28, height: 28)

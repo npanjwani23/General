@@ -71,7 +71,7 @@ private struct ModeRow: View {
                 HStack(spacing: 12) {
                     Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
-                        .foregroundStyle(isActive ? Color.orange : Color.secondary)
+                        .foregroundStyle(isActive ? Theme.accent : Color.secondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(mode.name)
                             .foregroundStyle(.primary)

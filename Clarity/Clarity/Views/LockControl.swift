@@ -19,13 +19,14 @@ struct LockControl: View {
     @State private var pressStart: Date?
     @State private var holdTask: Task<Void, Never>?
     @State private var completed = false
+    @State private var pressed = false
 
     /// Shorter than this counts as a tap, not the start of a hold.
     private let tapThreshold: TimeInterval = 0.35
 
     var body: some View {
         label
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .onLongPressGesture(minimumDuration: allowsHold ? Self.holdSeconds : 60,
                                 maximumDistance: 40,
                                 perform: holdFinished,
@@ -37,27 +38,38 @@ struct LockControl: View {
             .modifier(HoldAccessibilityAction(enabled: allowsHold, action: onHold))
     }
 
+    /// Still-style frosted bar: a translucent wash that fills with color
+    /// while you hold. `prominent` is the locked (dark) look.
     private var label: some View {
-        ZStack(alignment: .leading) {
-            Capsule()
-                .fill(prominent ? Color.orange : Color(.secondarySystemBackground))
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        let fill = prominent ? Theme.glow : Theme.accent
+        return ZStack(alignment: .leading) {
+            shape.fill(.ultraThinMaterial)
+            shape.fill(fill.opacity(pressed ? 0.26 : (prominent ? 0.16 : 0.14)))
             GeometryReader { proxy in
-                Capsule()
-                    .fill(Color.orange)
+                shape
+                    .fill(fill.opacity(prominent ? 0.55 : 0.9))
                     .frame(width: max(0, proxy.size.width * progress))
             }
             Text(progress > 0 ? holdTitle : title)
-                .font(.headline)
-                .foregroundStyle(prominent || progress > 0.5 ? Color.black : Color.primary)
+                .font(Theme.font(17, .bold))
+                .foregroundStyle(prominent ? Theme.nightInk : (progress > 0.5 ? Color.white : Theme.ink))
                 .frame(maxWidth: .infinity)
                 .animation(nil, value: progress)
         }
-        .frame(height: 58)
-        .clipShape(Capsule())
+        .frame(height: 64)
+        .clipShape(shape)
+        .overlay {
+            shape.strokeBorder(prominent ? Theme.glow.opacity(0.38) : Color.white.opacity(0.95), lineWidth: 1)
+        }
+        .scaleEffect(pressed ? 0.96 : 1)
+        .animation(.spring(response: 0.3, dampingFraction: 0.55), value: pressed)
     }
 
     private func pressingChanged(_ pressing: Bool) {
+        pressed = pressing
         if pressing {
+            Haptics.soft()
             completed = false
             pressStart = Date()
             guard allowsHold else { return }
