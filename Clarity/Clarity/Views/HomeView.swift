@@ -220,7 +220,7 @@ extension View {
     /// Shows `state.message` as an alert. Only one presenter should be active
     /// at a time, so the home screen hands off while a sheet is up.
     func messageAlert(_ state: AppState, isActive: Bool = true) -> some View {
-        alert("Latch", isPresented: Binding(
+        alert("Clarity", isPresented: Binding(
             get: { isActive && state.message != nil },
             set: { if !$0 { state.message = nil } }
         )) {

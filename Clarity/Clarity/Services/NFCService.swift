@@ -13,7 +13,7 @@ enum NFCScanError: LocalizedError {
         case .unavailable: return "NFC is not available on this device."
         case .cancelled: return nil
         case .unreadable: return "Could not read that tag. Try again."
-        case .unstable: return "That tag gave a different ID on the second read, so it can't unlock Latch. Use an NFC sticker (NTAG213 or NTAG215)."
+        case .unstable: return "That tag gave a different ID on the second read, so it can't unlock Clarity. Use an NFC sticker (NTAG213 or NTAG215)."
         case .busy: return "iOS says the NFC reader is busy. Close Wallet and the Camera, turn off iPhone Mirroring, then try again. If it keeps happening, restart the iPhone."
         case .failed(let message): return message
         }

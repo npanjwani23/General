@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct LatchApp: App {
+struct ClarityApp: App {
     @StateObject private var state = AppState()
     @Environment(\.scenePhase) private var scenePhase
 

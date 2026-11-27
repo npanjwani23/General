@@ -12,7 +12,7 @@ struct SetupView: View {
             List {
                 Section {
                     StepRow(number: 1, title: "Screen Time access",
-                            detail: state.isAuthorized ? "Allowed" : "Lets Latch block apps",
+                            detail: state.isAuthorized ? "Allowed" : "Lets Clarity block apps",
                             done: state.isAuthorized)
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -89,7 +89,7 @@ struct SetupView: View {
                             .foregroundStyle(.secondary)
                     }
                 } footer: {
-                    Text("For when your tag is lost. They do not come back, even if you reinstall Latch.")
+                    Text("For when your tag is lost. They do not come back, even if you reinstall Clarity.")
                 }
             }
             .navigationTitle("Settings")

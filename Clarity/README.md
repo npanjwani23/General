@@ -1,4 +1,4 @@
-# Latch
+# Clarity
 
 A personal app blocker for iPhone. Tap a paired NFC sticker to lock the apps and sites you chose. The only way back in is to tap the sticker again, or burn one of 5 lifetime emergency unlocks.
 
@@ -15,14 +15,14 @@ Everything runs on the phone. No server, no account, no network calls.
 
 ```sh
 brew install xcodegen
-cd Latch
+cd Clarity
 xcodegen
-open Latch.xcodeproj
+open Clarity.xcodeproj
 ```
 
-1. In `project.yml`, set `DEVELOPMENT_TEAM` to your 10-character team ID, then rerun `xcodegen`. It applies to both targets: the app (`Latch`) and the schedule extension (`LatchMonitor`).
-2. If Apple says a bundle ID is taken, change both `PRODUCT_BUNDLE_IDENTIFIER`s in `project.yml` (keep the extension's as the app's plus `.monitor`), and change the app group `group.app.latch.personal` in both `.entitlements` files and in `Shared/SharedStore.swift` to match.
-3. In Xcode, Signing & Capabilities should show Family Controls, NFC Tag Reading and App Groups on the app, and Family Controls plus App Groups on `LatchMonitor`. Automatic signing creates the app group the first time.
+1. In `project.yml`, set `DEVELOPMENT_TEAM` to your 10-character team ID, then rerun `xcodegen`. It applies to both targets: the app (`Clarity`) and the schedule extension (`ClarityMonitor`).
+2. If Apple says a bundle ID is taken, change both `PRODUCT_BUNDLE_IDENTIFIER`s in `project.yml` (keep the extension's as the app's plus `.monitor`), and change the app group `group.com.npanjwani.clarity` in both `.entitlements` files and in `Shared/SharedStore.swift` to match.
+3. In Xcode, Signing & Capabilities should show Family Controls, NFC Tag Reading and App Groups on the app, and Family Controls plus App Groups on `ClarityMonitor`. Automatic signing creates the app group the first time.
 4. Plug in the iPhone, turn on Developer Mode (Settings, Privacy & Security), select it as the run destination, and press Run.
 
 Installs from Xcode last one year, then need a reinstall.
@@ -51,22 +51,22 @@ Then tap the bottom button and hold the phone to the sticker to lock.
 
 ## How it holds
 
-- Blocks are enforced by iOS (ManagedSettings), so they survive force-quitting Latch and rebooting.
-- While locked, iOS refuses to delete apps, so Latch cannot be removed to escape.
+- Blocks are enforced by iOS (ManagedSettings), so they survive force-quitting Clarity and rebooting.
+- While locked, iOS refuses to delete apps, so Clarity cannot be removed to escape.
 - Tags, modes and schedules can only be changed while unlocked. Settings is hidden while locked, and any open sheet closes when a lock starts.
 - While locked, the date and time must stay on "Set Automatically", so moving the clock can't end a scheduled lock early.
-- If a schedule's end was missed (phone off), Latch ends that lock the next time it opens. Locks you started yourself are never ended by a schedule.
+- If a schedule's end was missed (phone off), Clarity ends that lock the next time it opens. Locks you started yourself are never ended by a schedule.
 - Phones, bank and transit cards that change their ID on every tap can't be paired, since they would never match again.
 - The emergency counter and paired tags are stored in the Keychain, so reinstalling does not reset them.
-- Schedules run in a separate Screen Time extension that iOS wakes at each window edge, so they work with Latch closed.
-- Known holes (iOS limits, not fixable in the app): Screen Time access for Latch can be switched off in iOS Settings, which lifts every block; for hard mode, have someone else set your Screen Time passcode. NFC tag IDs are not secret and can be cloned. A developer-signed install expires after a year; if that happens while locked, reinstall from the Mac.
+- Schedules run in a separate Screen Time extension that iOS wakes at each window edge, so they work with Clarity closed.
+- Known holes (iOS limits, not fixable in the app): Screen Time access for Clarity can be switched off in iOS Settings, which lifts every block; for hard mode, have someone else set your Screen Time passcode. NFC tag IDs are not secret and can be cloned. A developer-signed install expires after a year; if that happens while locked, reinstall from the Mac.
 
 ## Layout
 
 ```
-project.yml                      XcodeGen project spec (app + LatchMonitor extension)
-Latch/
-  LatchApp.swift                 App entry, light/dark flip on lock
+project.yml                      XcodeGen project spec (app + ClarityMonitor extension)
+Clarity/
+  ClarityApp.swift                 App entry, light/dark flip on lock
   Models/AppState.swift          Lock, modes, schedules, tags, stats
   Services/ScreenTimeService     Screen Time permission
   Services/ScheduleRegistrar     Registers schedule windows with iOS
@@ -84,6 +84,6 @@ Shared/                          Compiled into the app and the extension
   SharedStore                    App-group storage and lock state
   Shields                        Applies and clears the iOS shields
   ScheduleEngine                 What happens when a window opens or closes
-LatchMonitor/
-  LatchMonitor.swift             DeviceActivity extension, hands off to ScheduleEngine
+ClarityMonitor/
+  ClarityMonitor.swift             DeviceActivity extension, hands off to ScheduleEngine
 ```

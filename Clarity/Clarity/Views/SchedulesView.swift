@@ -11,7 +11,7 @@ struct SchedulesView: View {
                 Section {
                     Label("Schedules are unavailable in this build", systemImage: "exclamationmark.triangle")
                 } footer: {
-                    Text("The app and its schedule extension need the App Groups capability (group.app.latch.personal) to share settings. See the README.")
+                    Text("The app and its schedule extension need the App Groups capability (group.com.npanjwani.clarity) to share settings. See the README.")
                 }
             }
 
@@ -21,7 +21,7 @@ struct SchedulesView: View {
                         Task { await state.requestAuthorization() }
                     }
                 } footer: {
-                    Text("Schedules use Screen Time to lock on time, even when Latch is closed.")
+                    Text("Schedules use Screen Time to lock on time, even when Clarity is closed.")
                 }
             }
 
@@ -235,7 +235,7 @@ private struct WeekdayPicker: View {
 extension View {
     /// A plain OK alert driven by a local optional string.
     func localAlert(_ text: Binding<String?>, onDismiss: @escaping () -> Void = {}) -> some View {
-        alert("Latch", isPresented: Binding(
+        alert("Clarity", isPresented: Binding(
             get: { text.wrappedValue != nil },
             set: { if !$0 { text.wrappedValue = nil; onDismiss() } }
         )) {

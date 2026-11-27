@@ -122,7 +122,7 @@ final class AppState: ObservableObject {
         lock = SharedStore.loadLockState()
         sessions = LockLog.load()
         // Make the system shields match the saved state both ways, so they
-        // can never be left up while Latch says unlocked.
+        // can never be left up while Clarity says unlocked.
         if isLocked {
             if isAuthorized, let mode = displayMode {
                 Shields.apply(mode.selection)
@@ -150,7 +150,7 @@ final class AppState: ObservableObject {
         do {
             try await screenTime.requestAuthorization()
         } catch {
-            fail("Screen Time access was not granted. Latch cannot block apps without it.")
+            fail("Screen Time access was not granted. Clarity cannot block apps without it.")
         }
         isAuthorized = screenTime.isAuthorized
     }
@@ -166,7 +166,7 @@ final class AppState: ObservableObject {
             // Phones, bank and transit cards give a new random ID on every
             // tap (4 bytes starting 08). Paired, they would never match again.
             if uid.count == 8 && uid.hasPrefix("08") {
-                fail("That card changes its ID on every tap, so it can't unlock Latch. Use an NFC sticker (NTAG213 or NTAG215).")
+                fail("That card changes its ID on every tap, so it can't unlock Clarity. Use an NFC sticker (NTAG213 or NTAG215).")
                 return
             }
             if tags.contains(where: { $0.id == uid }) {
@@ -294,7 +294,7 @@ final class AppState: ObservableObject {
         if schedule.isEnabled {
             if !SharedStore.isAppGroupAvailable {
                 Haptics.error()
-                return .rejected("Schedules need the App Groups capability on both Latch targets. See the README.")
+                return .rejected("Schedules need the App Groups capability on both Clarity targets. See the README.")
             }
             if tags.isEmpty {
                 Haptics.error()
@@ -364,7 +364,7 @@ final class AppState: ObservableObject {
                 : "Hold your iPhone near your tag to lock."
             let uid = try await nfc.scan(prompt: prompt)
             guard tags.contains(where: { $0.id == uid }) else {
-                fail("That tag is not paired with Latch.")
+                fail("That tag is not paired with Clarity.")
                 return
             }
             lock = SharedStore.loadLockState()

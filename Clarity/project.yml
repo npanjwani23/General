@@ -1,6 +1,6 @@
-name: Latch
+name: Clarity
 options:
-  bundleIdPrefix: app.latch
+  bundleIdPrefix: com.npanjwani
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -16,37 +16,37 @@ settings:
     CURRENT_PROJECT_VERSION: "2"
 
 targets:
-  Latch:
+  Clarity:
     type: application
     platform: iOS
     sources:
-      - path: Latch
+      - path: Clarity
       - path: Shared
     dependencies:
-      - target: LatchMonitor
+      - target: ClarityMonitor
         embed: true
     settings:
       base:
         # Must be globally unique. Change if Apple says it is taken (and
         # change the extension's below to match, plus the app group).
-        PRODUCT_BUNDLE_IDENTIFIER: app.latch.personal
-        INFOPLIST_FILE: Latch/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Latch/Latch.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.npanjwani.clarity
+        INFOPLIST_FILE: Clarity/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Clarity/Clarity.entitlements
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
 
-  # Runs scheduled locks while Latch is closed (Screen Time DeviceActivity).
-  LatchMonitor:
+  # Runs scheduled locks while Clarity is closed (Screen Time DeviceActivity).
+  ClarityMonitor:
     type: app-extension
     platform: iOS
     sources:
-      - path: LatchMonitor
+      - path: ClarityMonitor
       - path: Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.latch.personal.monitor
-        INFOPLIST_FILE: LatchMonitor/Info.plist
-        CODE_SIGN_ENTITLEMENTS: LatchMonitor/LatchMonitor.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.npanjwani.clarity.monitor
+        INFOPLIST_FILE: ClarityMonitor/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ClarityMonitor/ClarityMonitor.entitlements
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
         APPLICATION_EXTENSION_API_ONLY: YES

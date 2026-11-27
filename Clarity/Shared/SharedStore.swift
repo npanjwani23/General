@@ -47,7 +47,7 @@ struct LockState: Equatable {
 /// Settings and lock state shared by the app and the schedule extension,
 /// kept in the app group so both processes read the same values.
 enum SharedStore {
-    static let appGroup = "group.app.latch.personal"
+    static let appGroup = "group.com.npanjwani.clarity"
 
     /// Falls back to the app's own defaults if the app group is missing
     /// (unsigned builds), which keeps the app working without schedules.
@@ -169,7 +169,7 @@ enum SharedStore {
 /// Darwin notification so the app redraws when the extension changes the
 /// lock while the app is open.
 enum LockSignal {
-    static let name = "app.latch.personal.lockStateChanged" as CFString
+    static let name = "com.npanjwani.clarity.lockStateChanged" as CFString
 
     static func post() {
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),

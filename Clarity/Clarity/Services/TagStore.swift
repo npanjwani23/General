@@ -13,7 +13,7 @@ struct PairedTag: Codable, Identifiable, Equatable {
 enum TagStore {
     static let emergencyLimit = 5
 
-    private static let service = "app.latch.personal"
+    private static let service = "com.npanjwani.clarity"
     private static let tagsKey = "pairedTags"
     private static let emergencyKey = "emergencyUsed"
 

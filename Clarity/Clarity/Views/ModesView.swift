@@ -154,7 +154,7 @@ struct ModeEditor: View {
                 } else {
                     Text(state.isAuthorized
                          ? draft.summary + "."
-                         : "Latch needs Screen Time access before it can list your apps.")
+                         : "Clarity needs Screen Time access before it can list your apps.")
                 }
             }
         }
