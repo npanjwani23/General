@@ -29,8 +29,13 @@ struct SetupView: View {
                     }
 
                     StepRow(number: 3, title: "Pair a tag",
-                            detail: state.tags.isEmpty ? "Below" : "\(state.tags.count) paired",
+                            detail: state.tags.isEmpty ? "Tap to scan your tag" : "\(state.tags.count) paired",
                             done: !state.tags.isEmpty)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            Task { await state.pairTag() }
+                        }
+                        .accessibilityAddTraits(.isButton)
                 } header: {
                     Text("Setup")
                 } footer: {
