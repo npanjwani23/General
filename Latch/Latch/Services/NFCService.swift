@@ -22,6 +22,8 @@ enum NFCScanError: LocalizedError {
 final class NFCService: NSObject, NFCTagReaderSessionDelegate {
     private var session: NFCTagReaderSession?
     private var continuation: CheckedContinuation<String, Error>?
+    /// A tag ID that was read, held until iOS has closed the scan sheet.
+    private var readID: String?
 
     func scan(prompt: String) async throws -> String {
         #if targetEnvironment(simulator)
@@ -75,15 +77,25 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
         guard let continuation else { return }
         self.continuation = nil
         self.session = nil
+        self.readID = nil
         continuation.resume(with: result)
     }
 
     // MARK: NFCTagReaderSessionDelegate
 
-    func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {}
+    func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {
+    }
 
     func tagReaderSession(_ session: NFCTagReaderSession, didInvalidateWithError error: Error) {
-        // Also fires after our own invalidate(); finish() ignores it once we have a result.
+        // iOS reports a closed sheet a couple of seconds late. A late report
+        // from an earlier scan must not end the scan that is running now.
+        guard session === self.session else { return }
+        // Our own invalidate() after a good read lands here too. Only now is
+        // the sheet gone, so the next scan (pairing asks twice) can open.
+        if let readID {
+            finish(.success(readID))
+            return
+        }
         if let nfcError = error as? NFCReaderError,
            nfcError.code == .readerSessionInvalidationErrorUserCanceled {
             finish(.failure(NFCScanError.cancelled))
@@ -100,7 +112,7 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
     }
 
     func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
-        guard let tag = tags.first else { return }
+        guard session === self.session, readID == nil, let tag = tags.first else { return }
 
         let identifier: Data?
         switch tag {
@@ -119,7 +131,7 @@ final class NFCService: NSObject, NFCTagReaderSessionDelegate {
 
         let hex = identifier.map { String(format: "%02X", $0) }.joined()
         session.alertMessage = "Tag read."
-        finish(.success(hex))
+        readID = hex
         session.invalidate()
     }
 }
